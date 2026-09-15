@@ -1,4 +1,4 @@
-name = "sailing-conditions-bot"
+name = "noob-sailbot"
 main = "worker/index.js"
 compatibility_date = "2024-11-06"
 

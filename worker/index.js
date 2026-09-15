@@ -123,7 +123,7 @@ export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") {
       // Handy for confirming in a browser that the Worker is deployed.
-      return new Response("sailing-conditions-bot: POST Discord interactions here.", {
+      return new Response("noob-sailbot: POST Discord interactions here.", {
         status: 405,
       });
     }

@@ -15,7 +15,7 @@ async function getJson(url, sourceName) {
   try {
     response = await fetch(url, {
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      headers: { "user-agent": "sailing-conditions-bot" },
+      headers: { "user-agent": "noob-sailbot" },
     });
   } catch (cause) {
     throw new Error(`${sourceName} request failed: ${cause.message}`, { cause });

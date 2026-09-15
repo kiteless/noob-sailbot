@@ -1,4 +1,4 @@
-# Sailing Conditions Discord Bot
+# Noob Sailbot
 
 Posts a daily wind, weather and tide summary to a Discord channel each morning, and answers an on-demand `/conditions` slash command in the same server.
 
@@ -47,8 +47,8 @@ Both are free, need no API key, and no signup.
 ## 1. Get the code
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/sailing-conditions-bot.git
-cd sailing-conditions-bot
+git clone https://github.com/YOUR-USERNAME/noob-sailbot.git
+cd noob-sailbot
 npm install
 ```
 
@@ -136,7 +136,7 @@ wrangler secret put DISCORD_WEBHOOK_URL
 
 The application ID and public key are not truly confidential — Discord publishes the public key precisely so endpoints can verify signatures. They are kept as secrets rather than committed `[vars]` so that `wrangler.toml` stays free of instance-specific values and the repo remains fork-ready.
 
-`wrangler deploy` prints your Worker URL, something like `https://sailing-conditions-bot.YOUR-SUBDOMAIN.workers.dev`.
+`wrangler deploy` prints your Worker URL, something like `https://noob-sailbot.YOUR-SUBDOMAIN.workers.dev`.
 
 ## 6. Point Discord at the Worker
 

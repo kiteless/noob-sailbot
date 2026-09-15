@@ -1,5 +1,5 @@
 {
-  "name": "sailing-conditions-bot",
+  "name": "noob-sailbot",
   "version": "1.0.0",
   "description": "Posts daily sailing conditions (tide, wind, weather) to Discord and answers an on-demand /conditions slash command. Runs entirely on Cloudflare Workers.",
   "type": "module",
