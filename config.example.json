@@ -1,0 +1,18 @@
+{
+  "location": {
+    "label": "McMurdo Station, Antarctica",
+    "lat": -77.85,
+    "lon": 166.67
+  },
+  "tides": {
+    "source": "none",
+    "noaaStationId": ""
+  },
+  "units": {
+    "temperature": "C",
+    "windSpeed": "kn"
+  },
+  "schedule": {
+    "localHour": 7
+  }
+}

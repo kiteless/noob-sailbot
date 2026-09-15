@@ -1,0 +1,25 @@
+{
+  "name": "sailing-conditions-bot",
+  "version": "1.0.0",
+  "description": "Posts daily sailing conditions (tide, wind, weather) to Discord and answers an on-demand /conditions slash command. Runs entirely on Cloudflare Workers.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "preview": "node src/postDaily.js --dry-run",
+    "post": "node src/postDaily.js",
+    "register": "node scripts/registerCommand.js",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "discord-interactions": "^4.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.132.0"
+  },
+  "license": "MIT"
+}
