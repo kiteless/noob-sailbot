@@ -8,11 +8,12 @@
     "node": ">=18"
   },
   "scripts": {
+    "test": "node --test",
     "preview": "node src/postDaily.js --dry-run",
     "post": "node src/postDaily.js",
     "register": "node scripts/registerCommand.js",
     "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --test-scheduled",
     "tail": "wrangler tail"
   },
   "dependencies": {

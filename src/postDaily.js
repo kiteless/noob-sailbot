@@ -10,28 +10,31 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { fetchConditions, formatText, formatEmbed, parseJsonc } from "./fetchConditions.js";
+import { loadConfig } from "./config.js";
+import { fetchConditions } from "./conditions.js";
+import { formatText, formatEmbed } from "./format.js";
 
+const CONFIG_FILE = "config.jsonc";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-function loadConfig() {
-  const path = join(repoRoot, "config.jsonc");
+function readConfig() {
+  const path = join(repoRoot, CONFIG_FILE);
   let raw;
   try {
     raw = readFileSync(path, "utf8");
   } catch {
     throw new Error(
-      `Could not read ${path}. Copy config.example.jsonc to config.jsonc and fill in your location.`,
+      `Could not read ${path}. Copy config.example.jsonc to ${CONFIG_FILE} and fill in your location.`,
     );
   }
-  return parseJsonc(raw, "config.jsonc");
+  return loadConfig(raw, CONFIG_FILE);
 }
 
 async function main() {
-  const asText = process.argv.includes("--text");
-  const conditions = await fetchConditions(loadConfig());
+  const args = new Set(process.argv.slice(2));
+  const conditions = await fetchConditions(readConfig());
 
-  if (process.argv.includes("--dry-run")) {
+  if (args.has("--dry-run")) {
     console.log(formatText(conditions));
     return;
   }
@@ -43,14 +46,14 @@ async function main() {
     );
   }
 
-  const body = asText
-    ? { content: formatText(conditions) }
-    : { embeds: [formatEmbed(conditions)] };
-
   const response = await fetch(webhookUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(
+      args.has("--text")
+        ? { content: formatText(conditions) }
+        : { embeds: [formatEmbed(conditions)] },
+    ),
   });
 
   if (!response.ok) {

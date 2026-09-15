@@ -204,16 +204,31 @@ This needs a `.dev.vars` file (gitignored) holding `DISCORD_PUBLIC_KEY`, `DISCOR
 
 ```
 Discord /conditions ──> Worker.fetch()      ──┐
-                                              ├──> src/fetchConditions.js ──> Open-Meteo + NOAA
-Cron Trigger (UTC)  ──> Worker.scheduled()  ──┘                                      │
-                                                                                     v
-                                                                        Discord embed (webhook
-                                                                        or interaction follow-up)
+                                              ├──> conditions.js ──> sources.js ──> Open-Meteo
+Cron Trigger (hourly) ─> Worker.scheduled() ──┘         │                        └─> NOAA
+                                                        v
+                                                   format.js ──> Discord embed
 ```
 
-`src/fetchConditions.js` avoids all `node:` imports so the same file runs unchanged in both the Workers runtime and local Node. It returns a structured snapshot; `formatEmbed()` renders it for Discord and `formatText()` for the terminal.
+| Module | Responsibility |
+|---|---|
+| `src/config.js` | JSONC parsing, defaults, validation. `loadConfig()` is called once at startup so a bad config fails at deploy, not at 7am |
+| `src/sources.js` | One function per upstream API; knows nothing about rendering |
+| `src/conditions.js` | Reduces both responses to a flat, rounded, unit-labelled snapshot |
+| `src/format.js` | `formatText()` for the terminal, `formatEmbed()` for Discord |
+| `src/time.js` | Timezone and clock helpers, including the local-hour gate |
+
+None of `src/` imports `node:` builtins, so every module runs unchanged in both the Workers runtime and local Node. Only `src/postDaily.js`, the local CLI, reads the filesystem.
 
 The slash command defers before doing any work. Discord requires a reply within 3 seconds, which two upstream API calls can't guarantee, so the Worker returns a type-5 "thinking…" acknowledgement immediately, finishes in `ctx.waitUntil()`, then PATCHes the real embed over the placeholder.
+
+## Tests
+
+```bash
+npm test
+```
+
+46 tests covering the JSONC parser, config validation, the DST gate, tide filtering and both renderers. They are all pure functions — no network, no credentials, runs in about a fifth of a second.
 
 ## Known limitations
 
@@ -228,8 +243,13 @@ The slash command defers before doing any work. Discord requires a reply within 
 ├── config.example.jsonc         commented placeholder (McMurdo) — committed
 ├── config.jsonc                 your real config — gitignored
 ├── src/
-│   ├── fetchConditions.js       shared fetch + formatting, runtime-agnostic
+│   ├── config.js                JSONC parsing, defaults, validation
+│   ├── sources.js               Open-Meteo and NOAA clients
+│   ├── conditions.js            builds the conditions snapshot
+│   ├── format.js                text and Discord embed renderers
+│   ├── time.js                  timezone and clock helpers
 │   └── postDaily.js             local CLI for preview / manual posting
+├── test/                        unit tests (node --test)
 ├── worker/index.js              Worker: slash command + scheduled daily post
 ├── scripts/registerCommand.js   one-time slash command registration
 ├── wrangler.toml                Worker config, cron, and the .jsonc text-import rule

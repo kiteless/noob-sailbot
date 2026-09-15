@@ -4,9 +4,9 @@
  *   fetch()      — handles Discord's /conditions slash command
  *   scheduled()  — posts the daily summary to a Discord webhook (Cron Trigger)
  *
- * Everything runs here so the source repo stays free of any instance-specific
- * data: the location lives in a gitignored config.jsonc bundled at deploy time,
- * and the Discord values are Cloudflare secrets.
+ * Everything runs here so the source repo stays free of instance-specific
+ * data: the location lives in a gitignored config.jsonc bundled at deploy
+ * time, and the Discord values are Cloudflare secrets.
  *
  * Secrets (set with `wrangler secret put <NAME>`):
  *   DISCORD_PUBLIC_KEY      verifies interaction signatures
@@ -19,19 +19,19 @@ import { verifyKey } from "discord-interactions";
 // The [[rules]] Text entry in wrangler.toml imports this as a string so the
 // comments in it survive to be stripped here.
 import configText from "../config.jsonc";
-import {
-  fetchConditions,
-  formatEmbed,
-  localParts,
-  parseJsonc,
-} from "../src/fetchConditions.js";
+import { loadConfig, DEFAULTS } from "../src/config.js";
+import { fetchConditions } from "../src/conditions.js";
+import { formatEmbed } from "../src/format.js";
+import { localParts } from "../src/time.js";
 
-const config = parseJsonc(configText, "config.jsonc");
-
-const DEFAULT_LOCAL_HOUR = 7;
+// Parsed and validated once, at module load. A malformed config therefore
+// fails immediately and visibly rather than silently skipping a 7am post.
+const config = loadConfig(configText, "config.jsonc");
 
 const InteractionType = { PING: 1, APPLICATION_COMMAND: 2 };
 const InteractionResponseType = { PONG: 1, DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: 5 };
+
+const DISCORD_API = "https://discord.com/api/v10";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -40,13 +40,25 @@ function json(body, status = 200) {
   });
 }
 
+async function postJson(url, payload, description) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`${description} failed: HTTP ${response.status} ${body}`.trim());
+  }
+}
+
 /**
  * Replace the "thinking..." placeholder with the real content. The interaction
  * token authenticates this, so no bot token is needed.
  */
 async function editOriginalResponse(applicationId, token, payload) {
   const response = await fetch(
-    `https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`,
+    `${DISCORD_API}/webhooks/${applicationId}/${token}/messages/@original`,
     {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -68,6 +80,43 @@ async function respondWithConditions(env, token) {
     payload = { content: `⚠️ Couldn't fetch conditions right now: ${error.message}` };
   }
   await editOriginalResponse(env.DISCORD_APPLICATION_ID, token, payload);
+}
+
+/**
+ * Cron Triggers only understand UTC, so rather than encoding a local post time
+ * in a UTC cron expression (which breaks twice a year at daylight saving), the
+ * Worker wakes hourly and checks the local clock itself.
+ *
+ * With schedule.timezone configured the check happens before any network call,
+ * so the 23 non-matching wakes each day cost nothing. Without it we have to
+ * fetch first to learn the timezone from the coordinates.
+ */
+async function runDailyPost(env) {
+  if (!env.DISCORD_WEBHOOK_URL) {
+    console.error("DISCORD_WEBHOOK_URL is not set — skipping daily post.");
+    return;
+  }
+
+  const { localHour = DEFAULTS.localHour, timezone } = config.schedule ?? {};
+
+  const shouldPost = (zone) => {
+    const hour = Number(localParts(zone).hour);
+    if (hour === localHour) return true;
+    console.log(`${zone} is at ${hour}:00, target ${localHour}:00 — not posting.`);
+    return false;
+  };
+
+  if (timezone && !shouldPost(timezone)) return;
+
+  const conditions = await fetchConditions(config);
+  if (!timezone && !shouldPost(conditions.timezone)) return;
+
+  await postJson(
+    env.DISCORD_WEBHOOK_URL,
+    { embeds: [formatEmbed(conditions)] },
+    "Discord webhook",
+  );
+  console.log(`Posted daily conditions for ${conditions.label}.`);
 }
 
 export default {
@@ -117,56 +166,12 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runDailyPost(env));
+    // Unlike the interaction path there is no user waiting to be told, so a
+    // failure here has to be logged loudly or it vanishes silently.
+    ctx.waitUntil(
+      runDailyPost(env).catch((error) => {
+        console.error(`Daily post failed: ${error.stack || error.message}`);
+      }),
+    );
   },
 };
-
-/**
- * Cron Triggers only understand UTC, so rather than trying to encode a local
- * post time in a UTC cron expression (which breaks twice a year at daylight
- * saving), the Worker simply wakes every hour and checks the local clock.
- */
-export async function runDailyPost(env) {
-  if (!env.DISCORD_WEBHOOK_URL) {
-    console.error("DISCORD_WEBHOOK_URL is not set — skipping daily post.");
-    return;
-  }
-
-  const schedule = config?.schedule ?? {};
-  const targetHour = schedule.localHour ?? DEFAULT_LOCAL_HOUR;
-
-  // With a configured timezone we can decline before spending any API calls,
-  // which is what makes an hourly cron free: 23 of 24 runs exit right here.
-  if (schedule.timezone) {
-    const hour = Number(localParts(schedule.timezone).hour);
-    if (hour !== targetHour) {
-      console.log(`${schedule.timezone} is at ${hour}:00, target ${targetHour}:00 — not posting.`);
-      return;
-    }
-  }
-
-  const conditions = await fetchConditions(config);
-
-  // No configured timezone: fall back to the one Open-Meteo reports for the
-  // coordinates. Correct, just one wasted fetch on each non-matching hour.
-  if (!schedule.timezone) {
-    const hour = Number(localParts(conditions.timezone).hour);
-    if (hour !== targetHour) {
-      console.log(`${conditions.timezone} is at ${hour}:00, target ${targetHour}:00 — not posting.`);
-      return;
-    }
-  }
-
-  const response = await fetch(env.DISCORD_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ embeds: [formatEmbed(conditions)] }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    console.error(`Discord webhook returned HTTP ${response.status} ${body}`);
-    return;
-  }
-  console.log(`Posted daily conditions for ${conditions.label}.`);
-}
