@@ -93,6 +93,79 @@ function resolveUnits(config) {
   return { temperature, windSpeed };
 }
 
+/**
+ * Parse JSONC — JSON with // and /* *\/ comments and trailing commas.
+ * Hand-rolled rather than pulled from npm so it runs identically in Node and
+ * the Workers runtime with no dependency. Newlines inside comments are kept so
+ * that JSON.parse error positions still line up with the original file.
+ */
+export function parseJsonc(text, sourceName = "config") {
+  let out = "";
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+        out += ch;
+      }
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i++;
+      } else if (ch === "\n") {
+        out += ch;
+      }
+      continue;
+    }
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i++;
+      continue;
+    }
+    // Drop a trailing comma before a closing brace/bracket. Safe here because
+    // this branch only runs outside strings and comments.
+    if (ch === "}" || ch === "]") {
+      let j = out.length - 1;
+      while (j >= 0 && /\s/.test(out[j])) j--;
+      if (j >= 0 && out[j] === ",") out = out.slice(0, j) + out.slice(j + 1);
+    }
+    out += ch;
+  }
+
+  try {
+    return JSON.parse(out);
+  } catch (cause) {
+    throw new Error(`${sourceName} is not valid JSONC: ${cause.message}`, { cause });
+  }
+}
+
 export function validateConfig(config) {
   const lat = config?.location?.lat;
   const lon = config?.location?.lon;
@@ -121,6 +194,19 @@ export function validateConfig(config) {
   const hour = config?.schedule?.localHour;
   if (hour !== undefined && (!Number.isInteger(hour) || hour < 0 || hour > 23)) {
     throw new Error("config.schedule.localHour must be an integer from 0 to 23");
+  }
+
+  const timezone = config?.schedule?.timezone;
+  if (timezone !== undefined) {
+    try {
+      new Intl.DateTimeFormat("en-CA", { timeZone: timezone });
+    } catch {
+      throw new Error(
+        `config.schedule.timezone "${timezone}" is not a recognised IANA timezone ` +
+          '(for example "America/Los_Angeles"). See ' +
+          "https://en.wikipedia.org/wiki/List_of_tz_database_time_zones",
+      );
+    }
   }
 
   resolveUnits(config);

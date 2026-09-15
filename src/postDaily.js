@@ -10,25 +10,21 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { fetchConditions, formatText, formatEmbed } from "./fetchConditions.js";
+import { fetchConditions, formatText, formatEmbed, parseJsonc } from "./fetchConditions.js";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function loadConfig() {
-  const path = join(repoRoot, "config.json");
+  const path = join(repoRoot, "config.jsonc");
   let raw;
   try {
     raw = readFileSync(path, "utf8");
   } catch {
     throw new Error(
-      `Could not read ${path}. Copy config.example.json to config.json and fill in your location.`,
+      `Could not read ${path}. Copy config.example.jsonc to config.jsonc and fill in your location.`,
     );
   }
-  try {
-    return JSON.parse(raw);
-  } catch (cause) {
-    throw new Error(`config.json is not valid JSON: ${cause.message}`);
-  }
+  return parseJsonc(raw, "config.jsonc");
 }
 
 async function main() {

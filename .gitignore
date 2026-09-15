@@ -1,5 +1,5 @@
 node_modules/
-config.json
+config.jsonc
 .env
 .dev.vars
 .wrangler/

@@ -1,0 +1,44 @@
+// Copy this file to config.jsonc and edit it. config.jsonc is gitignored, so
+// your real location never reaches the repository.
+//
+// This is JSONC: // and /* */ comments are allowed, and a trailing comma
+// before a closing } or ] is forgiven.
+{
+  // Where you sail. `label` is the heading on every message.
+  // Get coordinates by right-clicking the spot in Google Maps.
+  "location": {
+    "label": "McMurdo Station, Antarctica",
+    "lat": -77.85,
+    "lon": 166.67
+  },
+
+  // "noaa" for US waters, or "none" to leave tides out entirely.
+  // Find your station: https://tidesandcurrents.noaa.gov/map/
+  // Pick the one nearest your water, not the nearest big city — a station
+  // a few miles around a headland can read noticeably differently.
+  // NOAA covers US stations only, hence "none" for Antarctica.
+  "tides": {
+    "source": "none",
+    "noaaStationId": ""
+  },
+
+  // temperature: "F" or "C"
+  // windSpeed:   "kn" (knots), "mph", "kmh" (km/h) or "ms" (m/s)
+  //              Use "kn" for sailing.
+  "units": {
+    "temperature": "C",
+    "windSpeed": "kn"
+  },
+
+  // When the daily post goes out. The Worker wakes every hour and posts only
+  // when the clock at `timezone` reads `localHour`, so this is the ONLY place
+  // timing is set — no cron editing, and it follows daylight saving by itself.
+  //
+  // localHour: 0-23, local time.
+  // timezone:  IANA name, e.g. "America/Los_Angeles", "Europe/London".
+  //            https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+  "schedule": {
+    "localHour": 7,
+    "timezone": "Antarctica/McMurdo"
+  }
+}

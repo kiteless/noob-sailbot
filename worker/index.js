@@ -5,7 +5,7 @@
  *   scheduled()  — posts the daily summary to a Discord webhook (Cron Trigger)
  *
  * Everything runs here so the source repo stays free of any instance-specific
- * data: the location lives in a gitignored config.json bundled at deploy time,
+ * data: the location lives in a gitignored config.jsonc bundled at deploy time,
  * and the Discord values are Cloudflare secrets.
  *
  * Secrets (set with `wrangler secret put <NAME>`):
@@ -16,8 +16,17 @@
 import { verifyKey } from "discord-interactions";
 
 // Bundled by wrangler at deploy time — Workers have no filesystem at runtime.
-import config from "../config.json";
-import { fetchConditions, formatEmbed, localParts } from "../src/fetchConditions.js";
+// The [[rules]] Text entry in wrangler.toml imports this as a string so the
+// comments in it survive to be stripped here.
+import configText from "../config.jsonc";
+import {
+  fetchConditions,
+  formatEmbed,
+  localParts,
+  parseJsonc,
+} from "../src/fetchConditions.js";
+
+const config = parseJsonc(configText, "config.jsonc");
 
 const DEFAULT_LOCAL_HOUR = 7;
 
@@ -113,9 +122,9 @@ export default {
 };
 
 /**
- * Cron Triggers only understand UTC, so a single daily schedule drifts by an
- * hour across daylight saving. Instead we fire on both candidate UTC hours and
- * let whichever one is actually the target local hour do the posting.
+ * Cron Triggers only understand UTC, so rather than trying to encode a local
+ * post time in a UTC cron expression (which breaks twice a year at daylight
+ * saving), the Worker simply wakes every hour and checks the local clock.
  */
 export async function runDailyPost(env) {
   if (!env.DISCORD_WEBHOOK_URL) {
@@ -123,15 +132,29 @@ export async function runDailyPost(env) {
     return;
   }
 
-  const conditions = await fetchConditions(config);
-  const targetHour = config?.schedule?.localHour ?? DEFAULT_LOCAL_HOUR;
-  const localHour = Number(localParts(conditions.timezone).hour);
+  const schedule = config?.schedule ?? {};
+  const targetHour = schedule.localHour ?? DEFAULT_LOCAL_HOUR;
 
-  if (localHour !== targetHour) {
-    console.log(
-      `Local time at ${conditions.timezone} is ${localHour}:00, target is ${targetHour}:00 — not posting.`,
-    );
-    return;
+  // With a configured timezone we can decline before spending any API calls,
+  // which is what makes an hourly cron free: 23 of 24 runs exit right here.
+  if (schedule.timezone) {
+    const hour = Number(localParts(schedule.timezone).hour);
+    if (hour !== targetHour) {
+      console.log(`${schedule.timezone} is at ${hour}:00, target ${targetHour}:00 — not posting.`);
+      return;
+    }
+  }
+
+  const conditions = await fetchConditions(config);
+
+  // No configured timezone: fall back to the one Open-Meteo reports for the
+  // coordinates. Correct, just one wasted fetch on each non-matching hour.
+  if (!schedule.timezone) {
+    const hour = Number(localParts(conditions.timezone).hour);
+    if (hour !== targetHour) {
+      console.log(`${conditions.timezone} is at ${hour}:00, target ${targetHour}:00 — not posting.`);
+      return;
+    }
   }
 
   const response = await fetch(env.DISCORD_WEBHOOK_URL, {

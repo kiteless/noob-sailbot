@@ -54,15 +54,15 @@ npm install
 
 ## 2. Create your config
 
-`config.json` is gitignored so your location never reaches the repository. Create yours from the placeholder:
+`config.jsonc` is gitignored so your location never reaches the repository. Create yours from the placeholder:
 
 ```bash
-cp config.example.json config.json
+cp config.example.jsonc config.jsonc
 ```
 
-Then edit it:
+It is JSONC — regular JSON, plus `//` and `/* */` comments and forgiving of a trailing comma. The shipped example is commented field by field; here it is with the comments removed:
 
-```json
+```jsonc
 {
   "location": {
     "label": "Your Marina, Your Town",
@@ -78,7 +78,8 @@ Then edit it:
     "windSpeed": "kn"
   },
   "schedule": {
-    "localHour": 7
+    "localHour": 7,
+    "timezone": "America/New_York"
   }
 }
 ```
@@ -91,7 +92,8 @@ Then edit it:
 | `tides.noaaStationId` | Find yours on the [NOAA station map](https://tidesandcurrents.noaa.gov/map/). The example above is 8518750, The Battery in New York — NOAA's own reference station. **Pick the station nearest your water, not the nearest big city**; a station a few miles around a headland can read noticeably differently |
 | `units.temperature` | `"F"` or `"C"` |
 | `units.windSpeed` | `"kn"`, `"mph"`, `"kmh"` or `"ms"`. Use `"kn"` for sailing |
-| `schedule.localHour` | Local hour (0–23) for the daily post. See [Daily post timing](#daily-post-timing) |
+| `schedule.localHour` | Local hour (0–23) for the daily post |
+| `schedule.timezone` | IANA timezone the hour is measured in, e.g. `America/Los_Angeles`. Together with `localHour` this is the **only** place post timing is configured — see [Daily post timing](#daily-post-timing) |
 
 Check it before touching Discord — this prints the message and posts nothing:
 
@@ -122,7 +124,7 @@ wrangler deploy
 
 Deploy from the **repository root** — `wrangler.toml` lives there and points at `worker/index.js`.
 
-> Your `config.json` is bundled into the Worker at deploy time, because Workers have no filesystem to read at runtime. It must exist before you deploy, and **any config change needs another `wrangler deploy`** to take effect.
+> Your `config.jsonc` is bundled into the Worker at deploy time, because Workers have no filesystem to read at runtime. It must exist before you deploy, and **any config change needs another `wrangler deploy`** to take effect.
 
 Then set the three secrets. Each prompts for its value rather than taking it as an argument:
 
@@ -161,15 +163,17 @@ Re-run this only if you change the command's name or description.
 
 ## Daily post timing
 
-Cloudflare Cron Triggers are UTC-only and do not follow daylight saving, so a single daily cron drifts by an hour twice a year. This repo avoids that: it fires on **both** candidate UTC hours, and the Worker checks the marina's local clock — whichever run isn't `schedule.localHour` exits without posting.
-
-The committed pair in `wrangler.toml` targets 7am US Pacific:
+Cron Triggers are UTC-only and do not follow daylight saving, so encoding a local post time in a UTC cron expression breaks twice a year. This repo sidesteps that entirely: the Worker wakes **every hour** and checks the clock itself.
 
 ```toml
-crons = ["0 14 * * *", "0 15 * * *"]   # 07:00 PDT and 07:00 PST
+crons = ["0 * * * *"]
 ```
 
-If you are elsewhere, replace them with your own pair: `localHour` minus your daylight offset, and `localHour` minus your standard offset, each mod 24. Then set `schedule.localHour` to match. The cost is one extra no-op Worker invocation per day, which is free.
+On each wake it compares the current time at `schedule.timezone` against `schedule.localHour`. If they do not match it returns immediately, before making any API calls, so 23 of the 24 daily runs cost essentially nothing — and 24 invocations a day is negligible against a 100,000/day free tier.
+
+The practical effect is that **`config.jsonc` is the only place timing lives.** Change `localHour` to `18`, redeploy, and the post moves to 6pm. No cron editing, no UTC arithmetic, no twice-yearly drift, and it works in any timezone including the half-hour-offset ones.
+
+If you omit `schedule.timezone`, the Worker falls back to the timezone Open-Meteo reports for your coordinates. That is still correct, it just spends one wasted API call on each non-matching hour.
 
 ## Testing
 
@@ -192,7 +196,7 @@ Then in another terminal, trigger the daily post without waiting for the cron:
 curl "http://127.0.0.1:8799/__scheduled?cron=0+14+*+*+*"
 ```
 
-This needs a `.dev.vars` file (gitignored) holding `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID` and `DISCORD_WEBHOOK_URL`. Note the local-hour gate still applies — outside your `schedule.localHour` it will log that it skipped rather than posting.
+This needs a `.dev.vars` file (gitignored) holding `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID` and `DISCORD_WEBHOOK_URL`. Note the local-hour gate still applies — outside your `schedule.localHour` it logs that it skipped rather than posting. To exercise the posting path, temporarily set `localHour` to the current hour.
 
 **In production:** type `/conditions` in your server. You should see a "thinking…" placeholder that fills in a second or two later. If it stays on the placeholder, the deferred ack worked but the follow-up failed — run `wrangler tail` and try again.
 
@@ -216,20 +220,19 @@ The slash command defers before doing any work. Discord requires a reply within 
 - **Tides are US-only.** NOAA covers US stations. Elsewhere, set `tides.source` to `"none"`. (There's an extension point in the code for an international source such as WorldTides.info, which needs a paid key and isn't built.)
 - **Tide predictions are astronomical**, not observed. Real water levels shift with wind and barometric pressure.
 - **Config changes require a redeploy**, since the config is bundled into the Worker.
-- **The cron pair is timezone-specific.** Change it if you're not on US Pacific time, or the post never fires.
 - **Free-tier headroom is ample.** Cloudflare allows 100,000 Worker requests/day; this uses two scheduled invocations plus a handful of slash commands.
 
 ## Repository layout
 
 ```
-├── config.example.json          placeholder (McMurdo) — committed
-├── config.json                  your real config — gitignored
+├── config.example.jsonc         commented placeholder (McMurdo) — committed
+├── config.jsonc                 your real config — gitignored
 ├── src/
 │   ├── fetchConditions.js       shared fetch + formatting, runtime-agnostic
 │   └── postDaily.js             local CLI for preview / manual posting
 ├── worker/index.js              Worker: slash command + scheduled daily post
 ├── scripts/registerCommand.js   one-time slash command registration
-├── wrangler.toml                Worker config and cron schedule
+├── wrangler.toml                Worker config, cron, and the .jsonc text-import rule
 └── LICENSE                      MIT
 ```
 

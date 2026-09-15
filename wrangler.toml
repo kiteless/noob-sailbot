@@ -3,15 +3,20 @@ main = "worker/index.js"
 compatibility_date = "2024-11-06"
 
 [triggers]
-# Cron Triggers are UTC-only and do not follow daylight saving. Firing on both
-# candidate hours lets the Worker post at a steady local time year-round: it
-# checks the marina's local clock and the wrong one exits without posting.
-#   14:00 UTC = 07:00 PDT (summer, UTC-7)
-#   15:00 UTC = 07:00 PST (winter, UTC-8)
-# Set the target hour with schedule.localHour in config.json. If you are not on
-# US Pacific time, replace these two with your own standard/daylight pair:
-# (localHour - utcOffsetDST) and (localHour - utcOffsetStandard), mod 24.
-crons = ["0 14 * * *", "0 15 * * *"]
+# The Worker wakes hourly and decides for itself whether to post, using
+# schedule.localHour and schedule.timezone from config.jsonc. That keeps all
+# timing in one human-editable place, needs no cron edits when the post time
+# changes, and follows daylight saving in any timezone automatically.
+# 24 invocations a day is negligible against the 100,000/day free tier.
+crons = ["0 * * * *"]
+
+# config.jsonc is bundled into the Worker at deploy time (Workers have no
+# filesystem at runtime). This rule imports it as a string so the comments
+# survive; the Worker parses it with parseJsonc().
+[[rules]]
+type = "Text"
+globs = ["**/*.jsonc"]
+fallthrough = true
 
 # No [vars] here on purpose. wrangler.toml is committed, and the Discord
 # application ID / public key identify one specific bot instance — keeping them
@@ -20,6 +25,5 @@ crons = ["0 14 * * *", "0 15 * * *"]
 #   wrangler secret put DISCORD_APPLICATION_ID
 #   wrangler secret put DISCORD_WEBHOOK_URL
 #
-# config.json is bundled into the Worker at deploy time (Workers have no
-# filesystem at runtime), so it must exist locally before `wrangler deploy`,
-# and config changes require a redeploy.
+# config.jsonc must exist locally before `wrangler deploy`, and any config
+# change requires another deploy to take effect.
